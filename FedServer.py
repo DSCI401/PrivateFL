@@ -3,10 +3,19 @@ from collections import OrderedDict
 import opacus
 from opacus.validators import ModuleValidator
 
+# mine
+from transformers import RobertaModel
+
 
 class CDPServer:
     def __init__(self, device, model, input_shape, n_classes, noise_multiplier=1, sample_clients=10, disc_lr=1):
-        if 'linear_model' in model:
+        # mine
+        if model == 'SentimentClassifier':
+            roberta_model = RobertaModel.from_pretrained('roberta-large')
+            freeze_model_parameters(roberta_model)
+            self.model = SentimentClassifier(roberta_model)
+
+        elif 'linear_model' in model:
             self.model = globals()[model](num_classes=n_classes, input_shape=input_shape)
         else:
             self.model = globals()[model](num_classes=n_classes)

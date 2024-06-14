@@ -5,6 +5,43 @@ import torch.utils.data
 import torchvision.transforms as transforms
 from torchvision.datasets import CIFAR10, MNIST, FashionMNIST, CIFAR100, EMNIST
 from dataloader import *
+
+# mine
+from torch.utils.data import Dataset
+
+
+class IMDbDataset(Dataset):
+    def __init__(self, dataset, tokenizer, max_length=512):
+        self.dataset = dataset
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        text = self.dataset[idx]['text']
+        label = self.dataset[idx]['label']
+
+        inputs = self.tokenizer.encode_plus(
+            text,
+            add_special_tokens=True,
+            max_length=self.max_length,
+            padding='max_length',
+            truncation=True,
+            return_tensors='pt'
+        )
+
+        input_ids = inputs['input_ids'].squeeze()
+        attention_mask = inputs['attention_mask'].squeeze()
+
+        return {
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'labels': torch.tensor(label, dtype=torch.long)
+        }
+
+
 np.random.seed(2022)
 
 def get_datasets(data_name, dataroot, preprocess = None):

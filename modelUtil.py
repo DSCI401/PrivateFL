@@ -12,6 +12,32 @@ from numpy import median
 import numpy as np
 import torch.nn.functional as func
 
+
+# mine
+class SentimentClassifier(nn.Module):
+    def __init__(self, roberta_model):
+        super(SentimentClassifier, self).__init__()
+        self.roberta = roberta_model
+        self.dropout = nn.Dropout(p=0.01)
+        self.classifier = nn.Sequential(
+            nn.Linear(roberta_model.config.hidden_size, 512),
+            nn.ReLU(),
+            nn.Linear(512, 2)
+        )
+
+    def forward(self, input_ids, attention_mask):
+        outputs = self.roberta(input_ids=input_ids, attention_mask=attention_mask)
+        pooled_output = outputs[1]
+        pooled_output = self.dropout(pooled_output)
+        return self.classifier(pooled_output)
+
+
+# mine
+def freeze_model_parameters(model):
+    for param in model.parameters():
+        param.requires_grad = False
+
+
 def agg_weights(weights):
     with torch.no_grad():
         weights_avg = copy.deepcopy(weights[0])

@@ -1,21 +1,29 @@
 from modelUtil import *
-from datasets import *
+from datasets_pfl import *
 from FedUser import CDPUser, LDPUser, opacus
 from FedServer import LDPServer, CDPServer
 from datetime import date
 import argparse
 import time
 
+# mine
+from transformers import RobertaTokenizer
+from datasets import load_dataset, concatenate_datasets
+from torch.utils.data import DataLoader, random_split
+
+
 start_time = time.time()
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
+    # mine
     parser.add_argument('--data', type=str, default='mnist',
-                        choices=['mnist','cifar10','cifar100','fashionmnist','emnist','purchase','chmnist'])
+                        choices=['mnist','cifar10','cifar100','fashionmnist','emnist','purchase','chmnist', 'imdb'])
     parser.add_argument('--nclient', type=int, default= 100)
     parser.add_argument('--nclass', type=int, help= 'the number of class for this dataset', default= 10)
     parser.add_argument('--ncpc', type=int, help= 'the number of class assigned to each client', default=2)
-    parser.add_argument('--model', type=str, default='mnist_fully_connected_IN', choices = ['mnist_fully_connected_IN', 'resnet18_IN', 'alexnet_IN', 'purchase_fully_connected_IN', 'mnist_fully_connected', 'resnet18', 'alexnet', 'purchase_fully_connected'])
+    # mine
+    parser.add_argument('--model', type=str, default='mnist_fully_connected_IN', choices = ['mnist_fully_connected_IN', 'resnet18_IN', 'alexnet_IN', 'purchase_fully_connected_IN', 'mnist_fully_connected', 'resnet18', 'alexnet', 'purchase_fully_connected', 'SentimentClassifier'])
     parser.add_argument('--mode', type=str, default= 'LDP')
     parser.add_argument('--round',  type = int, default= 150)
     parser.add_argument('--epsilon', type=int, default=8)
@@ -78,10 +86,22 @@ if DATA_NAME == 'purchase':
     root = 'data/purchase/dataset_purchase'
 elif DATA_NAME == 'chmnist':
     root = 'data/CHMNIST'
-else: root = '~/torch_data'
-
-train_dataloaders, test_dataloaders = gen_random_loaders(DATA_NAME, root, NUM_CLIENTS,
-                                                         BATCH_SIZE, NUM_CLASES_PER_CLIENT, NUM_CLASSES)
+# mine
+elif DATA_NAME == 'imdb':
+    tokenizer = RobertaTokenizer.from_pretrained('roberta-large')
+    dataset = load_dataset('imdb')
+    full_dataset = concatenate_datasets([dataset['train'], dataset['test']])
+    train_size = int(0.8 * len(full_dataset))
+    test_size = len(full_dataset) - train_size
+    train_dataset, test_dataset = random_split(full_dataset, [train_size, test_size])
+    train_dataset = IMDbDataset(train_dataset, tokenizer)
+    test_dataset = IMDbDataset(test_dataset, tokenizer)
+    train_dataloaders = [DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True) for _ in range(NUM_CLIENTS)]
+    test_dataloaders = [DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False) for _ in range(NUM_CLIENTS)]
+else:
+    root = '~/torch_data'
+    train_dataloaders, test_dataloaders = gen_random_loaders(DATA_NAME, root, NUM_CLIENTS,
+            BATCH_SIZE, NUM_CLASES_PER_CLIENT, NUM_CLASSES)
 
 print(user_param)
 users = [user_obj(i, device, MODEL, None, NUM_CLASSES, train_dataloaders[i], **user_param) for i in range(NUM_CLIENTS)]

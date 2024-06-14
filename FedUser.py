@@ -7,10 +7,19 @@ from opacus.utils.batch_memory_manager import BatchMemoryManager
 import numpy as np
 import time
 
+# mine
+from transformers import RobertaModel
+
 class CDPUser:
     def __init__(self, index, device, model, input_shape, n_classes, train_dataloader, epochs, max_norm=1.0, disc_lr=5e-3, flr = 1e-1):
         self.index = index
-        if 'linear_model' in model:
+        # mine
+        if model == 'SentimentClassifier':
+            roberta_model = RobertaModel.from_pretrained('roberta-large')
+            freeze_model_parameters(roberta_model)
+            self.model = SentimentClassifier(roberta_model)
+
+        elif 'linear_model' in model:
             if input_shape == 1024:
                 self.model = globals()[model](num_classes=n_classes, input_shape=input_shape, bn_stats=True)
             else:
@@ -109,14 +118,26 @@ class LDPUser(CDPUser):
         self.model.train()
         for epoch in range(self.epochs):
             with BatchMemoryManager(data_loader=self.train_dataloader, max_physical_batch_size=self.mp_bs, optimizer=self.optim) as batch_loader:
-                for images, labels in batch_loader:
-                    images, labels = images.to(self.device), labels.to(self.device)
+                # mine
+                for batch in batch_loader:
+                    input_ids = batch['input_ids'].to(self.device)
+                    attention_mask = batch['attention_mask'].to(self.device)
+                    labels = batch['labels'].to(self.device)
                     self.optim.zero_grad()
-                    logits, preds = self.model(images)
-                    loss = self.loss_fn(logits, labels)
+                    outputs = self.model(input_ids, attention_mask=attention_mask)
+                    _, predicted = torch.max(outputs, 1)
+                    loss = self.loss_fn(outputs, labels)
                     loss.backward()
                     self.optim.step()
-                    self.acc_metric(preds, labels)
+                    self.acc_metric(predicted, labels)
+               # for images, labels in batch_loader:
+                #    images, labels = images.to(self.device), labels.to(self.device)
+                 #   self.optim.zero_grad()
+                  #  logits, preds = self.model(images)
+                   # loss = self.loss_fn(logits, labels)
+                    #loss.backward()
+                    #self.optim.step()
+                    #self.acc_metric(preds, labels)
         self.epsilon = self.privacy_engine.get_epsilon(self.delta)
         print(f"Client: {self.index} ACC: {self.acc_metric.compute()}, episilon: {self.epsilon}")
         self.acc_metric.reset()
