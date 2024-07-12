@@ -14,6 +14,27 @@ from torch.utils.data import DataLoader, random_split
 
 start_time = time.time()
 
+
+# Custom dataset to handle embedding data
+class EmbeddingDataset(Dataset):
+    def __init__(self, embeddings, labels):
+        self.embeddings = embeddings
+        self.labels = labels
+
+    def __len__(self):
+        return len(self.embeddings)
+
+    def __getitem__(self, idx):
+        return self.embeddings[idx], self.labels[idx]
+
+# Function to load embeddings and labels from .npy files
+def load_data(embeddings_path, labels_path):
+    embeddings = np.load(embeddings_path)
+    labels = np.load(labels_path)
+    return embeddings, labels
+
+
+
 def parse_arguments():
     parser = argparse.ArgumentParser()
     # mine
@@ -88,16 +109,25 @@ elif DATA_NAME == 'chmnist':
     root = 'data/CHMNIST'
 # mine
 elif DATA_NAME == 'imdb':
-    tokenizer = RobertaTokenizer.from_pretrained('roberta-large')
-    dataset = load_dataset('imdb')
-    full_dataset = concatenate_datasets([dataset['train'], dataset['test']])
-    train_size = int(0.8 * len(full_dataset))
-    test_size = len(full_dataset) - train_size
-    train_dataset, test_dataset = random_split(full_dataset, [train_size, test_size])
-    train_dataset = IMDbDataset(train_dataset, tokenizer)
-    test_dataset = IMDbDataset(test_dataset, tokenizer)
+    data_dir = 'data/imdb/'
+    train_embeddings_path = os.path.join(data_dir, 'train_embeddings.npy')
+    train_labels_path = os.path.join(data_dir, 'train_labels.npy')
+    test_embeddings_path = os.path.join(data_dir, 'test_embeddings.npy')
+    test_labels_path = os.path.join(data_dir, 'test_labels.npy')
+    
+    # Load embeddings and labels
+    print("Loading precomputed embeddings and labels...")
+    train_embeddings, train_labels = load_data(train_embeddings_path, train_labels_path)
+    test_embeddings, test_labels = load_data(test_embeddings_path, test_labels_path)
+
+    # Create datasets
+    train_dataset = EmbeddingDataset(train_embeddings, train_labels)
+    test_dataset = EmbeddingDataset(test_embeddings, test_labels)
+
+    # Create data loaders
     train_dataloaders = [DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True) for _ in range(NUM_CLIENTS)]
     test_dataloaders = [DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False) for _ in range(NUM_CLIENTS)]
+
 else:
     root = '~/torch_data'
     train_dataloaders, test_dataloaders = gen_random_loaders(DATA_NAME, root, NUM_CLIENTS,
