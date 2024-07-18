@@ -1,3 +1,6 @@
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+
 import numpy as np
 import torch
 from transformers import AutoTokenizer, AutoModel
@@ -53,7 +56,7 @@ def main():
         test_dataset = TextDataset(test_texts, test_labels)
 
         # Create DataLoaders
-        batch_size = 64  # Adjust batch size according to your GPU memory
+        batch_size = 768  # Adjust batch size according to your GPU memory
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
@@ -80,11 +83,14 @@ def main():
         # Save embeddings to disk (optional)
         print("Saving embeddings to disk...")
         np.save('train_embeddings.npy', train_embeddings)
+        np.save('train_labels.npy', train_labels_processed)
         np.save('test_embeddings.npy', test_embeddings)
+        np.save('test_labels.npy', test_labels_processed)
 
         print("Embeddings have been saved to disk.")
 
         # Create DataFrames for CSV
+        """
         train_df = pd.DataFrame({
             'review': train_texts_processed,
             'label': train_labels_processed,
@@ -111,7 +117,7 @@ def main():
         test_predictions = clf.predict(test_embeddings)
         accuracy = accuracy_score(test_labels_processed, test_predictions)
         print(f"Classifier accuracy: {accuracy * 100:.2f}%")
-
+"""
     except Exception as e:
         print(f"An error occurred: {e}")
 

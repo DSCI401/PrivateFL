@@ -3,17 +3,18 @@ from collections import OrderedDict
 import opacus
 from opacus.validators import ModuleValidator
 
-# mine
-from transformers import RobertaModel
-
 
 class CDPServer:
-    def __init__(self, device, model, input_shape, n_classes, noise_multiplier=1, sample_clients=10, disc_lr=1):
+    def __init__(self, device, model, input_shape, n_classes, noise_multiplier=1, sample_clients=10, disc_lr=1, pretrained_head=None):
         # mine
         if model == 'SentimentClassifier':
-            roberta_model = RobertaModel.from_pretrained('roberta-large')
-            freeze_model_parameters(roberta_model)
-            self.model = SentimentClassifier(roberta_model)
+            self.model = SentimentClassifier(input_shape)
+            if pretrained_head:
+                self.model.load_pretrained_head(pretrained_head)
+        elif model == 'SentimentClassifier_IN':
+            self.model = SentimentClassifier_IN(input_shape)
+            if pretrained_head:
+                self.model.load_pretrained_head(pretrained_head)
 
         elif 'linear_model' in model:
             self.model = globals()[model](num_classes=n_classes, input_shape=input_shape)
@@ -72,8 +73,8 @@ class CDPServer:
 
 
 class LDPServer(CDPServer):
-    def __init__(self, device, model, n_classes, input_shape, noise_multiplier=1, sample_clients=10, disc_lr=1):
-        super().__init__(device, model, n_classes, input_shape, noise_multiplier, sample_clients, disc_lr)
+    def __init__(self, device, model, n_classes, input_shape, noise_multiplier=1, sample_clients=10, disc_lr=1, pretrained_head=None):
+        super().__init__(device, model, n_classes, input_shape, noise_multiplier, sample_clients, disc_lr, pretrained_head=pretrained_head)
         self.model = ModuleValidator.fix(self.model)
         self.privacy_engine = opacus.PrivacyEngine()
         self.model = self.privacy_engine._prepare_model(self.model)

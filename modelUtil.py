@@ -15,21 +15,42 @@ import torch.nn.functional as func
 
 # mine
 class SentimentClassifier(nn.Module):
-    def __init__(self, roberta_model):
+    def __init__(self, input_size):
         super(SentimentClassifier, self).__init__()
-        self.roberta = roberta_model
         self.dropout = nn.Dropout(p=0.01)
         self.classifier = nn.Sequential(
-            nn.Linear(roberta_model.config.hidden_size, 512),
+            nn.Linear(input_size, 512),
             nn.ReLU(),
             nn.Linear(512, 2)
         )
 
-    def forward(self, input_ids, attention_mask):
-        outputs = self.roberta(input_ids=input_ids, attention_mask=attention_mask)
-        pooled_output = outputs[1]
-        pooled_output = self.dropout(pooled_output)
-        return self.classifier(pooled_output)
+    def forward(self, embeddings):
+        embeddings = self.dropout(embeddings)
+        return self.classifier(embeddings)
+
+    def load_pretrained_head(self, weight_path):
+        self.classifier.load_state_dict(torch.load(weight_path))
+
+
+# mine
+class SentimentClassifier_IN(nn.Module):
+    def __init__(self, input_size):
+        super(SentimentClassifier_IN, self).__init__()
+        self.norm = FeatureNorm(input_size)
+        self.dropout = nn.Dropout(p=0.01)
+        self.classifier = nn.Sequential(
+            nn.Linear(input_size, 512),
+            nn.ReLU(),
+            nn.Linear(512, 2)
+        )
+
+    def forward(self, embeddings):
+        embeddings = self.norm(embeddings)
+        embeddings = self.dropout(embeddings)
+        return self.classifier(embeddings)
+
+    def load_pretrained_head(self, weight_path):
+        self.classifier.load_state_dict(torch.load(weight_path))
 
 
 # mine
@@ -244,7 +265,6 @@ class FeatureNorm(nn.Module):
         self.gamma = nn.Parameter(torch.ones(1))
         self.beta = nn.Parameter(torch.zeros(1, feature_shape))
     
-
     def forward(self, x):
         x = torch.einsum('ni, j->ni', x, self.gamma) 
         x = x + self.beta

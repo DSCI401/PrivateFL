@@ -14,7 +14,6 @@ from torch.utils.data import DataLoader, random_split
 
 start_time = time.time()
 
-
 # Custom dataset to handle embedding data
 class EmbeddingDataset(Dataset):
     def __init__(self, embeddings, labels):
@@ -33,8 +32,6 @@ def load_data(embeddings_path, labels_path):
     labels = np.load(labels_path)
     return embeddings, labels
 
-
-
 def parse_arguments():
     parser = argparse.ArgumentParser()
     # mine
@@ -44,7 +41,7 @@ def parse_arguments():
     parser.add_argument('--nclass', type=int, help= 'the number of class for this dataset', default= 10)
     parser.add_argument('--ncpc', type=int, help= 'the number of class assigned to each client', default=2)
     # mine
-    parser.add_argument('--model', type=str, default='mnist_fully_connected_IN', choices = ['mnist_fully_connected_IN', 'resnet18_IN', 'alexnet_IN', 'purchase_fully_connected_IN', 'mnist_fully_connected', 'resnet18', 'alexnet', 'purchase_fully_connected', 'SentimentClassifier'])
+    parser.add_argument('--model', type=str, default='mnist_fully_connected_IN', choices = ['mnist_fully_connected_IN', 'resnet18_IN', 'alexnet_IN', 'purchase_fully_connected_IN', 'mnist_fully_connected', 'resnet18', 'alexnet', 'purchase_fully_connected', 'SentimentClassifier', 'SentimentClassifier_IN'])
     parser.add_argument('--mode', type=str, default= 'LDP')
     parser.add_argument('--round',  type = int, default= 150)
     parser.add_argument('--epsilon', type=int, default=8)
@@ -57,6 +54,7 @@ def parse_arguments():
                         help='learning rate')
     parser.add_argument('--E',  type=int, default=1,
                         help='the index of experiment in AE')
+    parser.add_argument('--pretrained_head', type=str, default=None, help='path to pretrained classification head')
     args = parser.parse_args()
     return args
 
@@ -120,6 +118,8 @@ elif DATA_NAME == 'imdb':
     train_embeddings, train_labels = load_data(train_embeddings_path, train_labels_path)
     test_embeddings, test_labels = load_data(test_embeddings_path, test_labels_path)
 
+    input_shape = train_embeddings.shape[1]
+
     # Create datasets
     train_dataset = EmbeddingDataset(train_embeddings, train_labels)
     test_dataset = EmbeddingDataset(test_embeddings, test_labels)
@@ -134,8 +134,8 @@ else:
             BATCH_SIZE, NUM_CLASES_PER_CLIENT, NUM_CLASSES)
 
 print(user_param)
-users = [user_obj(i, device, MODEL, None, NUM_CLASSES, train_dataloaders[i], **user_param) for i in range(NUM_CLIENTS)]
-server = server_obj(device, MODEL, None, NUM_CLASSES, **server_param)
+users = [user_obj(i, device, MODEL, input_shape, NUM_CLASSES, train_dataloaders[i], **user_param) for i in range(NUM_CLIENTS)]
+server = server_obj(device, MODEL, input_shape, NUM_CLASSES, **server_param)
 for i in range(NUM_CLIENTS):
     users[i].set_model_state_dict(server.get_model_state_dict())
 best_acc = 0
@@ -170,3 +170,5 @@ results_df = results_df._append(
      "model": MODEL, "epsilon": target_epsilon, "accuracy": best_acc},
     ignore_index=True)
 results_df.to_csv(f'log/E{args.E}/{DATA_NAME}_{NUM_CLIENTS}_{NUM_CLASES_PER_CLIENT}_{MODE}_{MODEL}_{target_epsilon}.csv', index=False)
+
+

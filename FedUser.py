@@ -7,17 +7,19 @@ from opacus.utils.batch_memory_manager import BatchMemoryManager
 import numpy as np
 import time
 
-# mine
-from transformers import RobertaModel
 
 class CDPUser:
-    def __init__(self, index, device, model, input_shape, n_classes, train_dataloader, epochs, max_norm=1.0, disc_lr=5e-3, flr = 1e-1):
+    def __init__(self, index, device, model, input_shape, n_classes, train_dataloader, epochs, max_norm=1.0, disc_lr=5e-3, flr = 1e-1, pretrained_head=None):
         self.index = index
         # mine
         if model == 'SentimentClassifier':
-            roberta_model = RobertaModel.from_pretrained('roberta-large')
-            freeze_model_parameters(roberta_model)
-            self.model = SentimentClassifier(roberta_model)
+            self.model = SentimentClassifier(input_shape)
+            if pretrained_head:
+                self.model.load_pretrained_head(pretrained_head)
+        elif model == 'SentimentClassifier_IN':
+            self.model = SentimentClassifier_IN(input_shape)
+            if pretrained_head:
+                self.model.load_pretrained_head(pretrained_head)
 
         elif 'linear_model' in model:
             if input_shape == 1024:
@@ -26,6 +28,7 @@ class CDPUser:
                 self.model = globals()[model](num_classes=n_classes, input_shape=input_shape, bn_stats=False)
         else:
             self.model = globals()[model](num_classes=n_classes)
+
         self.train_dataloader = train_dataloader
         self.loss_fn = torch.nn.CrossEntropyLoss()
         self.disc_lr = disc_lr
@@ -35,10 +38,11 @@ class CDPUser:
         self.epochs = epochs
         self.flr = flr
         self.agg = True
+
         if "IN" in model:
             self.optim = torch.optim.SGD([
-                                            {'params': self.model.norm.parameters(), 'lr': self.flr},
-                                            {'params': [v for k, v in self.model.named_parameters() if "norm" not in k]}], lr=self.disc_lr)
+                {'params': self.model.norm.parameters(), 'lr': self.flr},
+                {'params': [v for k, v in self.model.named_parameters() if "norm" not in k]}], lr=self.disc_lr)
             self.agg = False
         else:
             self.optim = torch.optim.SGD(self.model.parameters(), self.disc_lr)
@@ -49,14 +53,14 @@ class CDPUser:
         self.model.train()
         for epoch in range(self.epochs):
             losses = []
-            for images, labels in self.train_dataloader:
-                images, labels = images.to(self.device), labels.to(self.device)
+            for embeddings, labels in self.train_dataloader:
+                embeddings, labels = embeddings.to(self.device), labels.to(self.device)
                 self.optim.zero_grad()
-                logits, preds = self.model(images)
+                logits = self.model(embeddings)
                 loss = self.loss_fn(logits, labels)
                 loss.backward()
                 self.optim.step()
-                self.acc_metric(preds, labels)
+                self.acc_metric(logits.argmax(dim=1), labels)
                 losses.append(loss.item())
             print(f"Client: {self.index} ACC: {self.acc_metric.compute()}, Loss:{np.mean(losses)}")
             self.acc_metric.reset()
@@ -69,10 +73,10 @@ class CDPUser:
         testing_corrects = 0
         testing_sum = 0
         with torch.no_grad():
-            for images, labels in dataloader:
-                images, labels = images.to(self.device), labels.to(self.device)
-                _, preds = self.model(images)
-                testing_corrects += torch.sum(torch.argmax(preds, dim=1) == labels)
+            for embeddings, labels in dataloader:
+                embeddings, labels = embeddings.to(self.device), labels.to(self.device)
+                logits = self.model(embeddings)
+                testing_corrects += torch.sum(torch.argmax(logits, dim=1) == labels)
                 testing_sum += len(labels)
         self.model.to('cpu')
         return testing_corrects.cpu().detach().numpy(), testing_sum
@@ -91,8 +95,8 @@ class CDPUser:
                     self.model.state_dict()[key].data.copy_(weights[key])
 
 class LDPUser(CDPUser):
-    def __init__(self, index, device, model, n_classes, input_shape, train_dataloader, epochs, rounds, target_epsilon, target_delta, sr, max_norm=2.0, disc_lr=5e-1, mp_bs = 3):
-        super().__init__(index, device, model, n_classes, input_shape, train_dataloader, epochs=epochs, max_norm=max_norm, disc_lr=disc_lr)
+    def __init__(self, index, device, model, n_classes, input_shape, train_dataloader, epochs, rounds, target_epsilon, target_delta, sr, max_norm=2.0, disc_lr=5e-1, mp_bs = 3, pretrained_head=None):
+        super().__init__(index, device, model, n_classes, input_shape, train_dataloader, epochs=epochs, max_norm=max_norm, disc_lr=disc_lr, pretrained_head=pretrained_head)
         self.rounds = rounds
         self.target_epsilon = target_epsilon
         self.epsilon = 0
@@ -113,31 +117,22 @@ class LDPUser(CDPUser):
                                                                                                       data_loader=self.train_dataloader, epochs=self.epochs*self.rounds*self.sr,
                                                                                                       target_epsilon=self.target_epsilon, target_delta=self.delta,
                                                                                                       max_grad_norm=self.max_norm)
+
     def train(self):
-        self.model = self.model.to(self.device)
+        self.model.to(self.device)
         self.model.train()
         for epoch in range(self.epochs):
             with BatchMemoryManager(data_loader=self.train_dataloader, max_physical_batch_size=self.mp_bs, optimizer=self.optim) as batch_loader:
                 # mine
-                for batch in batch_loader:
-                    input_ids = batch['input_ids'].to(self.device)
-                    attention_mask = batch['attention_mask'].to(self.device)
-                    labels = batch['labels'].to(self.device)
+                for embeddings, labels in batch_loader:
+                    embeddings, labels =  embeddings.to(self.device), labels.to(self.device)
                     self.optim.zero_grad()
-                    outputs = self.model(input_ids, attention_mask=attention_mask)
-                    _, predicted = torch.max(outputs, 1)
-                    loss = self.loss_fn(outputs, labels)
+                    logits = self.model(embeddings)
+                    _, predicted = torch.max(logits, 1)
+                    loss = self.loss_fn(logits, labels)
                     loss.backward()
                     self.optim.step()
                     self.acc_metric(predicted, labels)
-               # for images, labels in batch_loader:
-                #    images, labels = images.to(self.device), labels.to(self.device)
-                 #   self.optim.zero_grad()
-                  #  logits, preds = self.model(images)
-                   # loss = self.loss_fn(logits, labels)
-                    #loss.backward()
-                    #self.optim.step()
-                    #self.acc_metric(preds, labels)
         self.epsilon = self.privacy_engine.get_epsilon(self.delta)
         print(f"Client: {self.index} ACC: {self.acc_metric.compute()}, episilon: {self.epsilon}")
         self.acc_metric.reset()
